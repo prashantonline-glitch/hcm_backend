@@ -1,0 +1,228 @@
+const prisma = require('../config/prisma');
+
+exports.getAllCalendars = async (req, res, next) => {
+  try {
+    const orgId = req.user?.organizationId || req.tenant?.id;
+    const whereClause = orgId ? { companyId: orgId } : {};
+
+    let calendars = await prisma.workCalendar.findMany({
+      where: whereClause,
+      include: {
+        versions: {
+          include: {
+            weekends: true
+          },
+          orderBy: { versionNumber: 'desc' },
+          take: 1
+        },
+        assignments: true,
+        holidays: true
+      }
+    });
+
+    if (calendars.length === 0 && orgId) {
+      await prisma.workCalendar.create({
+        data: {
+          companyId: orgId,
+          name: 'Standard Corporate Calendar',
+          description: 'Standard Monday-Friday 40hr work week schedule',
+          timezone: 'UTC',
+          isDefaultCompanyCalendar: true,
+          status: 'ACTIVE',
+          versions: {
+            create: {
+              versionNumber: 1,
+              weekends: {
+                create: [
+                  { dayOfWeek: 'SATURDAY', type: 'FULL_DAY' },
+                  { dayOfWeek: 'SUNDAY', type: 'FULL_DAY' }
+                ]
+              }
+            }
+          }
+        }
+      });
+
+      calendars = await prisma.workCalendar.findMany({
+        where: whereClause,
+        include: {
+          versions: {
+            include: {
+              weekends: true
+            },
+            orderBy: { versionNumber: 'desc' },
+            take: 1
+          },
+          assignments: true,
+          holidays: true
+        }
+      });
+    }
+
+    res.json({ success: true, data: calendars });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.getCalendarById = async (req, res, next) => {
+  try {
+    const orgId = req.user?.organizationId || req.tenant?.id;
+    const calendar = await prisma.workCalendar.findFirst({
+      where: {
+        id: req.params.id,
+        ...(orgId && { companyId: orgId })
+      },
+      include: {
+        versions: {
+          include: {
+            weekends: true
+          },
+          orderBy: { versionNumber: 'desc' }
+        },
+        assignments: true,
+        holidays: true
+      }
+    });
+    if (!calendar) return res.status(404).json({ success: false, message: 'Not found' });
+    res.json({ success: true, data: calendar });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.createCalendar = async (req, res, next) => {
+  try {
+    const orgId = req.user?.organizationId || req.tenant?.id;
+    const { name, description, timezone, weekends } = req.body;
+    
+    // Create calendar and initial version
+    const calendar = await prisma.workCalendar.create({
+      data: {
+        companyId: orgId || null,
+        name,
+        description,
+        timezone: timezone || 'UTC',
+        versions: {
+          create: {
+            versionNumber: 1,
+            weekends: {
+              create: weekends || [] // e.g., [{ dayOfWeek: 'SATURDAY', type: 'FULL_DAY' }]
+            }
+          }
+        }
+      },
+      include: {
+        versions: { include: { weekends: true } }
+      }
+    });
+
+    res.status(201).json({ success: true, data: calendar });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.updateCalendar = async (req, res, next) => {
+  try {
+    const orgId = req.user?.organizationId || req.tenant?.id;
+    const { name, description, timezone, status, weekends } = req.body;
+    
+    const existing = await prisma.workCalendar.findFirst({
+      where: {
+        id: req.params.id,
+        ...(orgId && { companyId: orgId })
+      }
+    });
+    if (!existing) return res.status(404).json({ success: false, message: 'Calendar not found' });
+
+    const calendar = await prisma.workCalendar.update({
+      where: { id: req.params.id },
+      data: { name, description, timezone, status }
+    });
+
+    if (weekends) {
+      const latestVersion = await prisma.workCalendarVersion.findFirst({
+        where: { calendarId: req.params.id },
+        orderBy: { versionNumber: 'desc' }
+      });
+
+      if (latestVersion) {
+        await prisma.workCalendarWeekend.deleteMany({
+          where: { versionId: latestVersion.id }
+        });
+        await prisma.workCalendarWeekend.createMany({
+          data: weekends.map(w => ({ ...w, versionId: latestVersion.id }))
+        });
+      }
+    }
+
+    const updatedCalendar = await prisma.workCalendar.findUnique({
+      where: { id: req.params.id },
+      include: {
+        versions: {
+          include: {
+            weekends: true
+          },
+          orderBy: { versionNumber: 'desc' }
+        },
+        assignments: true,
+        holidays: true
+      }
+    });
+
+    res.json({ success: true, data: updatedCalendar });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.deleteCalendar = async (req, res, next) => {
+  try {
+    const orgId = req.user?.organizationId || req.tenant?.id;
+    const existing = await prisma.workCalendar.findFirst({
+      where: {
+        id: req.params.id,
+        ...(orgId && { companyId: orgId })
+      }
+    });
+    if (!existing) return res.status(404).json({ success: false, message: 'Calendar not found' });
+
+    await prisma.workCalendar.delete({
+      where: { id: req.params.id }
+    });
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.assignCalendar = async (req, res, next) => {
+  try {
+    const { calendarId, entityType, entityId, effectiveFrom } = req.body;
+    
+    const assignment = await prisma.workCalendarAssignment.create({
+      data: {
+        calendarId,
+        entityType,
+        entityId,
+        effectiveFrom: effectiveFrom ? new Date(effectiveFrom) : new Date()
+      }
+    });
+
+    res.status(201).json({ success: true, data: assignment });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.removeAssignment = async (req, res, next) => {
+  try {
+    await prisma.workCalendarAssignment.delete({
+      where: { id: req.params.id }
+    });
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+};
