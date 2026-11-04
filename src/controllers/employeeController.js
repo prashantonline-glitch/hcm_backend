@@ -320,15 +320,20 @@ const clockIn = async (req, res, next) => {
 
     let lateMinutes = 0;
 
-    if (shift) {
-      const [startHour, startMin] = shift.startTime.split(':').map(Number);
-      const expectedStart = new Date(now);
-      expectedStart.setHours(startHour, startMin, 0, 0);
-      
-      const diffMin = Math.floor((now - expectedStart) / 60000);
-      if (diffMin > shift.graceInMin) {
-        lateMinutes = diffMin;
-      }
+    if (shift && shift.startTime && typeof shift.startTime === 'string') {
+      try {
+        const parts = shift.startTime.split(':').map(Number);
+        if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+          const [startHour, startMin] = parts;
+          const expectedStart = new Date(now);
+          expectedStart.setHours(startHour, startMin, 0, 0);
+          const diffMin = Math.floor((now - expectedStart) / 60000);
+          const grace = Number(shift.graceInMin) || 0;
+          if (diffMin > grace) {
+            lateMinutes = diffMin;
+          }
+        }
+      } catch (e) {}
     }
 
     const log = await prisma.attendanceLog.create({
@@ -374,9 +379,14 @@ const clockOut = async (req, res, next) => {
     
     const shift = activeLog.shift;
     
-    if (shift) {
-      const [startHour, startMin] = shift.startTime.split(':').map(Number);
-      const [endHour, endMin] = shift.endTime.split(':').map(Number);
+    if (shift && shift.startTime && shift.endTime && typeof shift.startTime === 'string' && typeof shift.endTime === 'string') {
+      let startHour = 9, startMin = 0, endHour = 18, endMin = 0;
+      try {
+        const sParts = shift.startTime.split(':').map(Number);
+        const eParts = shift.endTime.split(':').map(Number);
+        if (sParts.length >= 2) { startHour = sParts[0]; startMin = sParts[1]; }
+        if (eParts.length >= 2) { endHour = eParts[0]; endMin = eParts[1]; }
+      } catch(e) {}
       
       const expectedEnd = new Date(activeLog.clockIn);
       expectedEnd.setHours(endHour, endMin, 0, 0);

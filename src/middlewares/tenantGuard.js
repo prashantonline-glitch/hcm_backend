@@ -67,7 +67,15 @@ const tenantGuard = async (req, res, next) => {
     }
 
     // Extract active SaaS module feature identifiers for the organization's plan
-    const assignedFeatures = (pricingPlan?.features || []).map(f => f.feature);
+    let assignedFeatures = (pricingPlan?.features || []).map(f => f.feature);
+
+    const { FEATURE_TITLES } = require('./subscriptionGuard');
+    const allSystemFeatures = Object.keys(FEATURE_TITLES || {});
+
+    // If no features are explicitly assigned in DB, or organization is on Trial / Enterprise plan, grant full module access
+    if (assignedFeatures.length === 0 || org.subscriptionStatus === 'TRIAL' || pricingPlan?.name === 'Enterprise') {
+      assignedFeatures = allSystemFeatures;
+    }
 
     // Pass organization and subscription helpers down
     req.tenant = {

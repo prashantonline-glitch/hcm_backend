@@ -38,7 +38,7 @@ const {
 } = require('../controllers/reportsAdminController');
 
 const {
-  getSalaryStructures, createSalaryStructure, updateSalaryStructure, deleteSalaryStructure, setDefaultSalaryStructure,
+  getSalaryStructures, createSalaryStructure, updateSalaryStructure, deleteSalaryStructure, setDefaultSalaryStructure, assignEmployeesToStructure, seedDefaults,
   getSalaryComponents, createSalaryComponent, updateSalaryComponent, deleteSalaryComponent,
   getDeductions, createDeduction, updateDeduction, deleteDeduction,
   getTaxRules, createTaxRule, updateTaxRule, deleteTaxRule,
@@ -109,6 +109,8 @@ router.post('/salary-structures', checkPermission('payroll_center', 'create'), s
 router.put('/salary-structures/:id', checkPermission('payroll_center', 'edit'), subscriptionGuard('payroll_operations'), updateSalaryStructure);
 router.delete('/salary-structures/:id', checkPermission('payroll_center', 'delete'), subscriptionGuard('payroll_operations'), deleteSalaryStructure);
 router.patch('/salary-structures/:id/default', checkPermission('payroll_center', 'edit'), subscriptionGuard('payroll_operations'), setDefaultSalaryStructure);
+router.post('/salary-structures/:id/assign', checkPermission('payroll_center', 'edit'), subscriptionGuard('payroll_operations'), assignEmployeesToStructure);
+router.post('/payroll-config/seed-defaults', checkPermission('payroll_center', 'create'), subscriptionGuard('payroll_operations'), seedDefaults);
 
 // Payroll Configuration
 router.get('/payroll-config/components', checkPermission('payroll_center', 'view'), subscriptionGuard('payroll_operations'), getSalaryComponents);

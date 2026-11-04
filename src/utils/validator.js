@@ -7,6 +7,9 @@ const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Add entity specific validation rules
 const validationRules = {
+  departments: {
+    name: { required: true, type: 'string' }
+  },
   users: {
     email: { required: true, type: 'email' },
     role: { required: true, type: 'string' }

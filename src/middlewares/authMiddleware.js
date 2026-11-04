@@ -78,28 +78,33 @@ const protect = async (req, res, next) => {
 
     if (employeeProfile?.exitLifecycle) {
       const exit = employeeProfile.exitLifecycle;
-      const approvedStatuses = ['APPROVED', 'CLEARANCE_IN_PROGRESS', 'PENDING_CLEARANCE'];
-      if (approvedStatuses.includes(exit.status)) {
+      // Allow INITIATED (standard for scheduled terminations) alongside approved statuses
+      const activeExitStatuses = ['APPROVED', 'CLEARANCE_IN_PROGRESS', 'PENDING_CLEARANCE', 'INITIATED'];
+      if (activeExitStatuses.includes(exit.status)) {
         const effectiveLwd = exit.finalLastWorkingDay ? new Date(exit.finalLastWorkingDay) : (exit.lastWorkingDay ? new Date(exit.lastWorkingDay) : null);
         if (effectiveLwd && !isNaN(effectiveLwd.getTime())) {
           const endOfLwd = new Date(effectiveLwd);
           endOfLwd.setHours(23, 59, 59, 999);
           if (new Date() > endOfLwd) {
-            await prisma.user.update({ where: { id: user.id }, data: { isActive: false, status: 'Inactive' } });
+            await prisma.user.update({ where: { id: user.id }, data: { isActive: false, status: 'Terminated' } });
+            await prisma.employeeProfile.update({ where: { id: employeeProfile.id }, data: { lifecycleStatus: 'TERMINATED' } });
             await prisma.exitLifecycle.update({ where: { id: exit.id }, data: { status: 'EMPLOYEE_RELIEVED' } });
             return res.status(401).json({
               success: false,
-              error: { code: 'EMPLOYMENT_ENDED', message: 'Your tenure has concluded and your account is deactivated.' }
+              error: { code: 'EMPLOYMENT_ENDED', message: 'Your employment tenure has concluded and your account is deactivated as per scheduled termination.' }
             });
           }
         }
       } else if (exit.status === 'EMPLOYEE_RELIEVED' || exit.status === 'COMPLETED') {
         if (user.isActive) {
-          await prisma.user.update({ where: { id: user.id }, data: { isActive: false, status: 'Inactive' } });
+          await prisma.user.update({ where: { id: user.id }, data: { isActive: false, status: 'Terminated' } });
+        }
+        if (employeeProfile.lifecycleStatus !== 'TERMINATED') {
+          await prisma.employeeProfile.update({ where: { id: employeeProfile.id }, data: { lifecycleStatus: 'TERMINATED' } });
         }
         return res.status(401).json({
           success: false,
-          error: { code: 'ACCOUNT_RELIEVED', message: 'Your account has been deactivated.' }
+          error: { code: 'ACCOUNT_RELIEVED', message: 'Your account has been relieved and deactivated.' }
         });
       }
     }

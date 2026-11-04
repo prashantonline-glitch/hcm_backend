@@ -21,7 +21,7 @@ const {
   remindManager, sendWelcomeEmailAll,
   promoteCandidate,
   confirmEmployeeProbation, extendEmployeeProbation,
-  initiateTermination, getExitsList, updateClearanceStatus, finalizeExit, reviewResignationHr,
+  initiateTermination, getExitsList, updateClearanceStatus, finalizeExit, reviewResignationHr, triggerScheduledTerminationsSweep,
   trackCandidateProfile,
 } = require('../controllers/hrController');
 
@@ -90,6 +90,7 @@ router.patch('/employees/:id/extend-probation', checkPermission('onboarding', 'e
 // Exits / Offboarding
 router.post('/terminate', checkPermission('offboarding_resignations', 'create'), subscriptionGuard('offboarding_exit'), initiateTermination);
 router.get('/exits', checkPermission('offboarding_resignations', 'view'), subscriptionGuard('offboarding_exit'), getExitsList);
+router.post('/exits/process-scheduled', checkPermission('offboarding_resignations', 'edit'), subscriptionGuard('offboarding_exit'), triggerScheduledTerminationsSweep);
 router.patch('/exits/:id/clearance', checkPermission('offboarding_resignations', 'edit'), subscriptionGuard('offboarding_exit'), updateClearanceStatus);
 router.patch('/exits/:id/finalize', checkPermission('offboarding_resignations', 'approve'), subscriptionGuard('offboarding_exit'), finalizeExit);
 router.patch('/resignations/:id/approve', checkPermission('offboarding_resignations', 'approve'), subscriptionGuard('offboarding_exit'), reviewResignationHr);

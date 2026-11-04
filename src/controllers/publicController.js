@@ -546,6 +546,35 @@ const registerOrganization = async (req, res, next) => {
       purpose: 'invitation'
     });
 
+    // Automatically dispatch welcome & password activation email to the newly registered customer
+    try {
+      const { sendEmail } = require('../utils/emailService');
+      const clientBase = process.env.CLIENT_URL ? process.env.CLIENT_URL.split(',')[0].trim() : 'http://localhost:5173';
+      const setupUrl = `${clientBase}/setup-password?token=${encodeURIComponent(token)}`;
+
+      await sendEmail({
+        to: result.user.email,
+        subject: `Welcome to HCM - Setup Your Administrator Account for ${result.org.name}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px;">
+            <h2 style="color: #4f46e5; margin-bottom: 8px;">Welcome to HCM Cloud!</h2>
+            <p style="color: #475569; font-size: 15px;">Hello <strong>${adminFullName}</strong>,</p>
+            <p style="color: #475569; font-size: 15px;">Your workspace for <strong>${result.org.name}</strong> has been provisioned with a 14-day free trial.</p>
+            <p style="color: #475569; font-size: 15px;">Please click the button below to configure your administrator password and activate your account:</p>
+            <div style="margin: 28px 0;">
+              <a href="${setupUrl}" style="background-color: #4f46e5; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">
+                Set Up Password & Activate Account
+              </a>
+            </div>
+            <p style="color: #94a3b8; font-size: 13px;">Or copy and paste this activation link:</p>
+            <p style="color: #6366f1; font-size: 12px; word-break: break-all;">${setupUrl}</p>
+          </div>
+        `
+      });
+    } catch (emailErr) {
+      console.error('[PublicController] Automated customer registration email dispatch failed:', emailErr.message);
+    }
+
     return res.status(201).json({
       success: true,
       data: {

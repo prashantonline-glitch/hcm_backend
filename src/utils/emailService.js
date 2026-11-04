@@ -1,27 +1,39 @@
 const nodemailer = require('nodemailer');
 
 const createTransporter = async () => {
-  // Use env variables if available
-  if (process.env.SMTP_HOST && process.env.SMTP_USER) {
+  const host = process.env.SMTP_HOST;
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+  const port = parseInt(process.env.SMTP_PORT, 10) || 587;
+
+  // Check if real SMTP credentials are provided (and not sample placeholder)
+  const isConfigured = host && user && pass && !user.includes('aapka-') && !pass.includes('aapka-');
+
+  if (isConfigured) {
     return nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: process.env.SMTP_PORT || 587,
+      host,
+      port,
+      secure: port === 465, // true for 465, false for 587
       auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
+        user,
+        pass,
       },
+      tls: {
+        rejectUnauthorized: false
+      }
     });
   }
 
-  // Fallback for development without SMTP credentials
-  console.log('⚠️  No SMTP credentials provided. Using mock email service.');
+  // Fallback for development / unconfigured credentials
+  console.log('⚠️  Real SMTP credentials not configured or using placeholders. Using mock email service.');
   return {
     sendMail: async (mailOptions) => {
-      console.log('\n--- MOCK EMAIL SENT ---');
+      console.log('\n--- MOCK EMAIL DISPATCH ---');
+      console.log('From:', mailOptions.from);
       console.log('To:', mailOptions.to);
       console.log('Subject:', mailOptions.subject);
-      console.log('Text:', mailOptions.text);
-      console.log('-----------------------\n');
+      console.log('Content Preview:', (mailOptions.text || mailOptions.html || '').slice(0, 150));
+      console.log('---------------------------\n');
       return { messageId: `mock-${Date.now()}` };
     }
   };
@@ -32,18 +44,19 @@ const sendEmail = async (options) => {
     const transporter = await createTransporter();
     
     const mailOptions = {
-      from: process.env.EMAIL_FROM || '"HCM Portal" <noreply@hcmportal.local>',
+      from: process.env.EMAIL_FROM || '"HCM Cloud Portal" <noreply@hcmportal.local>',
       to: options.to,
       subject: options.subject,
-      text: options.text,
-      html: options.html,
+      text: options.text || '',
+      html: options.html || (options.text ? `<p>${options.text.replace(/\n/g, '<br/>')}</p>` : ''),
     };
 
     const info = await transporter.sendMail(mailOptions);
+    console.log(`[EmailService] Email sent successfully to "${options.to}" (MessageID: ${info.messageId})`);
     return { success: true, info };
   } catch (error) {
-    console.error('Error sending email:', error);
-    return { success: false, error };
+    console.error(`[EmailService] Error sending email to "${options?.to}":`, error.message);
+    return { success: false, error: error.message };
   }
 };
 

@@ -288,10 +288,16 @@ const processImport = async (req, res, next) => {
     // Re-run the same validation as preview to filter out invalid rows
     validRows = await filterValidRows(validRows, entity);
 
-    // Inject Context (from req.user assigned by auth middleware)
+    // Inject Context (from req.user assigned by auth middleware with robust fallback)
+    let organizationId = req.user?.organizationId || req.tenant?.id;
+    if (!organizationId) {
+      const defaultOrg = await prisma.organization.findFirst({ select: { id: true } });
+      organizationId = defaultOrg?.id || null;
+    }
+
     const context = {
-      organizationId: req.user ? req.user.organizationId : null,
-      userId: req.user ? req.user.id : null
+      organizationId,
+      userId: req.user ? (req.user.id || req.user.userId) : null
     };
 
     const result = await executeImport(validRows, entity, context);

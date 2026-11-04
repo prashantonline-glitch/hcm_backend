@@ -7,12 +7,224 @@ const getOrgId = async (user) => {
   return defaultOrg.id;
 };
 
+
+// ==========================================
+// Auto-Seed Standard Enterprise Payroll Defaults
+// ==========================================
+async function autoSeedDefaultsForOrg(orgId) {
+  try {
+    const orgPrefix = String(orgId).replace(/[^a-zA-Z0-9]/g, '').slice(0, 6).toUpperCase() || 'DEF';
+
+    // 1. Master components
+    const standardComponents = [
+      { name: 'Basic Salary', defaultCode: 'BASIC', category: 'Earning', calculationType: 'Percentage', calculationBase: 'CTC', value: '50', isTaxable: true, isAutoBalance: false, sequence: 1 },
+      { name: 'House Rent Allowance', defaultCode: 'HRA', category: 'Earning', calculationType: 'Percentage', calculationBase: 'Basic', value: '40', isTaxable: true, isAutoBalance: false, sequence: 2 },
+      { name: 'Special Allowance', defaultCode: 'SPECIAL_ALLOWANCE', category: 'Earning', calculationType: 'Auto Balance', calculationBase: 'CTC', value: '0', isTaxable: true, isAutoBalance: true, sequence: 3 },
+      { name: 'Conveyance Allowance', defaultCode: 'CONVEYANCE', category: 'Earning', calculationType: 'Fixed', calculationBase: 'CTC', value: '1600', isTaxable: false, isAutoBalance: false, sequence: 4 },
+      { name: 'Medical Allowance', defaultCode: 'MEDICAL', category: 'Earning', calculationType: 'Fixed', calculationBase: 'CTC', value: '1250', isTaxable: false, isAutoBalance: false, sequence: 5 },
+    ];
+
+    const createdComponents = [];
+    for (const sc of standardComponents) {
+      let comp = await prisma.salaryComponent.findFirst({
+        where: { organizationId: orgId, name: sc.name }
+      });
+      if (!comp) {
+        const codeExists = await prisma.salaryComponent.findUnique({ where: { code: sc.defaultCode } });
+        const finalCode = codeExists ? (sc.defaultCode + '_' + orgPrefix) : sc.defaultCode;
+
+        try {
+          comp = await prisma.salaryComponent.create({
+            data: {
+              organizationId: orgId,
+              name: sc.name,
+              code: finalCode,
+              category: sc.category,
+              calculationType: sc.calculationType,
+              calculationBase: sc.calculationBase,
+              value: sc.value,
+              isTaxable: sc.isTaxable,
+              isAutoBalance: sc.isAutoBalance,
+              sequence: sc.sequence,
+              status: 'Active'
+            }
+          });
+        } catch (e) {
+          comp = await prisma.salaryComponent.findFirst({ where: { organizationId: orgId } });
+        }
+      }
+      if (comp) createdComponents.push(comp);
+    }
+
+    // 2. Standard Deductions
+    const standardDeductions = [
+      { name: 'Provident Fund (PF)', defaultCode: 'PF', category: 'PF', valueType: 'Percentage', value: '12', isPreTax: true },
+      { name: 'Professional Tax (PT)', defaultCode: 'PT', category: 'ProfessionalTax', valueType: 'Fixed', value: '200', isPreTax: true }
+    ];
+
+    for (const sd of standardDeductions) {
+      const existing = await prisma.deductionRule.findFirst({
+        where: { organizationId: orgId, name: sd.name }
+      });
+      if (!existing) {
+        const codeExists = await prisma.deductionRule.findUnique({ where: { code: sd.defaultCode } });
+        const finalCode = codeExists ? (sd.defaultCode + '_' + orgPrefix) : sd.defaultCode;
+        try {
+          await prisma.deductionRule.create({
+            data: {
+              organizationId: orgId,
+              name: sd.name,
+              code: finalCode,
+              category: sd.category,
+              valueType: sd.valueType,
+              value: sd.value,
+              isPreTax: sd.isPreTax,
+              status: 'Active'
+            }
+          });
+        } catch (e) {}
+      }
+    }
+
+    // 3. Tax Rule (IT tax rule)
+    const existingTax = await prisma.taxRule.findFirst({ where: { organizationId: orgId } });
+    if (!existingTax) {
+      const standardSlabs = [
+        { min: 0, max: 250000, rate: 0, baseTax: 0 },
+        { min: 250000, max: 500000, rate: 5, baseTax: 0 },
+        { min: 500000, max: 1000000, rate: 20, baseTax: 12500 },
+        { min: 1000000, max: null, rate: 30, baseTax: 112500 }
+      ];
+      try {
+        await prisma.taxRule.create({
+          data: {
+            organizationId: orgId,
+            name: 'IT Tax Rule (Progressive)',
+            country: 'India',
+            state: null,
+            slabs: JSON.stringify(standardSlabs),
+            status: 'Active'
+          }
+        });
+      } catch (e) {}
+    }
+
+    // 4. Default Salary Structure
+    let defaultStruct = await prisma.salaryStructure.findFirst({
+      where: { organizationId: orgId, isDefault: true },
+      include: { versions: { include: { components: true } } }
+    });
+
+    if (!defaultStruct) {
+      defaultStruct = await prisma.salaryStructure.findFirst({
+        where: { organizationId: orgId },
+        include: { versions: { include: { components: true } } }
+      });
+    }
+
+    if (!defaultStruct) {
+      defaultStruct = await prisma.salaryStructure.create({
+        data: {
+          organizationId: orgId,
+          name: 'Standard Executive CTC Structure',
+          description: 'Standard enterprise CTC breakdown template with Basic, HRA, and Special Allowance',
+          currency: 'USD',
+          isDefault: true,
+          status: 'Active'
+        }
+      });
+      const v1 = await prisma.salaryStructureVersion.create({
+        data: {
+          structureId: defaultStruct.id,
+          version: 1,
+          effectiveFrom: new Date(),
+          components: {
+            create: createdComponents.map((c, idx) => ({
+              componentId: c.id,
+              sequence: idx + 1,
+              category: c.category,
+              calculationType: c.calculationType,
+              calculationBase: c.calculationBase,
+              value: c.value,
+              formula: c.formula
+            }))
+          }
+        }
+      });
+      await prisma.salaryStructure.update({
+        where: { id: defaultStruct.id },
+        data: { currentVersionId: v1.id }
+      });
+    } else {
+      // If default structure has 0 components, attach created components
+      const latestVer = defaultStruct.versions?.[0];
+      if (latestVer && (!latestVer.components || latestVer.components.length === 0) && createdComponents.length > 0) {
+        await prisma.salaryStructureComponent.createMany({
+          data: createdComponents.map((c, idx) => ({
+            versionId: latestVer.id,
+            componentId: c.id,
+            sequence: idx + 1,
+            category: c.category,
+            calculationType: c.calculationType,
+            calculationBase: c.calculationBase,
+            value: c.value,
+            formula: c.formula
+          }))
+        });
+      }
+    }
+
+    // 5. Connect active employees to the default structure
+    const employees = await prisma.employeeProfile.findMany({
+      where: { organizationId: orgId }
+    });
+
+    for (const emp of employees) {
+      const comp = await prisma.compensationProfile.findUnique({
+        where: { employeeId: emp.id }
+      });
+      const monthly = emp.baseSalary || 5000;
+      if (!comp) {
+        await prisma.compensationProfile.create({
+          data: {
+            employeeId: emp.id,
+            salaryStructureId: defaultStruct.id,
+            salaryVersionId: defaultStruct.currentVersionId,
+            monthlyCTC: monthly,
+            annualCTC: monthly * 12,
+            effectiveDate: new Date(),
+            status: 'Active'
+          }
+        });
+      } else if (!comp.salaryStructureId) {
+        await prisma.compensationProfile.update({
+          where: { id: comp.id },
+          data: {
+            salaryStructureId: defaultStruct.id,
+            salaryVersionId: defaultStruct.currentVersionId
+          }
+        });
+      }
+    }
+
+    return { components: createdComponents, defaultStruct };
+  } catch (err) {
+    console.warn('AutoSeed notice:', err.message);
+    return null;
+  }
+}
+
 // ==========================================
 // 1. Salary Structures (Templates)
 // ==========================================
 exports.getSalaryStructures = async (req, res) => {
   try {
     const orgId = await getOrgId(req.user);
+    const structCount = await prisma.salaryStructure.count({ where: { organizationId: orgId } });
+    const compCount = await prisma.salaryComponent.count({ where: { organizationId: orgId } });
+    if (structCount === 0 || compCount === 0) {
+      await autoSeedDefaultsForOrg(orgId);
+    }
     const structures = await prisma.salaryStructure.findMany({
       where: { organizationId: orgId },
       include: {
@@ -22,6 +234,38 @@ exports.getSalaryStructures = async (req, res) => {
             components: {
               include: { component: true },
               orderBy: { sequence: 'asc' }
+            },
+            compensations: {
+              include: {
+                employee: {
+                  select: {
+                    id: true,
+                    fullName: true,
+                    employeeId: true,
+                    designation: true,
+                    joiningDate: true,
+                    lifecycleStatus: true,
+                    department: { select: { id: true, name: true } },
+                    user: { select: { id: true, name: true, email: true, isActive: true, status: true } }
+                  }
+                }
+              }
+            }
+          }
+        },
+        compensations: {
+          include: {
+            employee: {
+              select: {
+                id: true,
+                fullName: true,
+                employeeId: true,
+                designation: true,
+                joiningDate: true,
+                lifecycleStatus: true,
+                department: { select: { id: true, name: true } },
+                user: { select: { id: true, name: true, email: true, isActive: true, status: true } }
+              }
             }
           }
         },
@@ -268,6 +512,10 @@ exports.setDefaultSalaryStructure = async (req, res) => {
 exports.getSalaryComponents = async (req, res) => {
   try {
     const orgId = await getOrgId(req.user);
+    const count = await prisma.salaryComponent.count({ where: { organizationId: orgId } });
+    if (count === 0) {
+      await autoSeedDefaultsForOrg(orgId);
+    }
     const components = await prisma.salaryComponent.findMany({
       where: { organizationId: orgId },
       orderBy: [{ sequence: 'asc' }, { displayOrder: 'asc' }]
@@ -395,6 +643,10 @@ exports.deleteSalaryComponent = async (req, res) => {
 exports.getDeductions = async (req, res) => {
   try {
     const orgId = await getOrgId(req.user);
+    const count = await prisma.deductionRule.count({ where: { organizationId: orgId } });
+    if (count === 0) {
+      await autoSeedDefaultsForOrg(orgId);
+    }
     const deductions = await prisma.deductionRule.findMany({
       where: { organizationId: orgId },
       orderBy: { createdAt: 'desc' }
@@ -468,6 +720,10 @@ exports.deleteDeduction = async (req, res) => {
 exports.getTaxRules = async (req, res) => {
   try {
     const orgId = await getOrgId(req.user);
+    const count = await prisma.taxRule.count({ where: { organizationId: orgId } });
+    if (count === 0) {
+      await autoSeedDefaultsForOrg(orgId);
+    }
     const taxes = await prisma.taxRule.findMany({
       where: { organizationId: orgId },
       orderBy: { createdAt: 'desc' }
@@ -598,5 +854,95 @@ exports.createWorkflow = async (req, res) => {
     res.status(201).json({ success: true, data: workflow });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+// ==========================================
+// 5. Bulk Assign Employees to Structure
+// ==========================================
+exports.assignEmployeesToStructure = async (req, res) => {
+  try {
+    const orgId = await getOrgId(req.user);
+    const { id } = req.params;
+    const { employeeIds = [] } = req.body;
+
+    const structure = await prisma.salaryStructure.findFirst({
+      where: { id, organizationId: orgId },
+      include: { versions: { orderBy: { version: 'desc' }, take: 1 } }
+    });
+
+    if (!structure) {
+      return res.status(404).json({ success: false, message: 'Salary structure not found.' });
+    }
+
+    const versionId = structure.currentVersionId || structure.versions?.[0]?.id || null;
+
+    const profiles = await prisma.employeeProfile.findMany({
+      where: {
+        organizationId: orgId,
+        OR: [
+          { id: { in: employeeIds } },
+          { userId: { in: employeeIds } },
+          { employeeId: { in: employeeIds } }
+        ]
+      }
+    });
+
+    let assigned = 0;
+    for (const profile of profiles) {
+      const existingComp = await prisma.compensationProfile.findUnique({
+        where: { employeeId: profile.id }
+      });
+
+      if (existingComp) {
+        await prisma.compensationProfile.update({
+          where: { id: existingComp.id },
+          data: {
+            salaryStructureId: id,
+            salaryVersionId: versionId,
+            status: 'Active'
+          }
+        });
+      } else {
+        const monthly = profile.baseSalary || 5000;
+        await prisma.compensationProfile.create({
+          data: {
+            employeeId: profile.id,
+            salaryStructureId: id,
+            salaryVersionId: versionId,
+            monthlyCTC: monthly,
+            annualCTC: monthly * 12,
+            effectiveDate: new Date(),
+            status: 'Active'
+          }
+        });
+      }
+      assigned++;
+    }
+
+    res.json({
+      success: true,
+      message: assigned + ' employee(s) assigned to ' + structure.name + ' successfully.',
+      assignedCount: assigned
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+// ==========================================
+// 6. Explicit Seed Defaults Endpoint
+// ==========================================
+exports.seedDefaults = async (req, res) => {
+  try {
+    const orgId = await getOrgId(req.user);
+    const result = await autoSeedDefaultsForOrg(orgId);
+    res.json({
+      success: true,
+      message: 'Standard enterprise payroll configuration initialized successfully.',
+      data: result
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
   }
 };

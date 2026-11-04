@@ -109,7 +109,7 @@ const getReportData = async (req, res, next) => {
     const all = modules.length === 0;
     const has = (k) => all || modules.some(m => m.toLowerCase().includes(k));
 
-    const [users, departments, payrollSnapshots, payslips, benefitPlans, leaveRequests, attendanceLogs, policies, auditLogs] = await Promise.all([
+    const [users, departments, payrollSnapshots, payslips, benefitPlans, leaveRequests, attendanceLogs, policies, auditLogs, jobPosts] = await Promise.all([
       has('workforce') || has('employee') || has('user')
         ? prisma.user.findMany({
             where: { organizationId },
@@ -160,11 +160,24 @@ const getReportData = async (req, res, next) => {
             select: { id: true, action: true, resource: true, level: true, createdAt: true, user: { select: { email: true, role: true } } },
             orderBy: { createdAt: 'desc' }, take: 200
           })
+        : Promise.resolve([]),
+
+      has('hiring') || has('recruit') || has('job')
+        ? prisma.jobPost.findMany({
+            where: { organizationId },
+            select: { id: true, title: true, department: true, location: true, type: true, status: true, isActive: true },
+            take: 100
+          }).catch(() => [])
         : Promise.resolve([])
     ]);
 
-    return res.status(200).json({ success: true, data: { users, departments, payrollSnapshots, payslips, benefitPlans, leaveRequests, attendanceLogs, policies, auditLogs } });
+    return res.status(200).json({ success: true, data: { users, departments, payrollSnapshots, payslips, benefitPlans, leaveRequests, attendanceLogs, policies, auditLogs, jobPosts } });
   } catch (err) { next(err); }
 };
 
-module.exports = { getGeneratedReports, createGeneratedReport, deleteGeneratedReport, getReportData };
+module.exports = { 
+  getGeneratedReports, 
+  createGeneratedReport, 
+  deleteGeneratedReport, 
+  getReportData 
+};

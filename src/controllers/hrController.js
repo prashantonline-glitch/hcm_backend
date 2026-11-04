@@ -9,6 +9,7 @@ const { z } = require('zod');
 const { sendEmail } = require('../utils/emailService');
 const { isWorkflowEnabled, processApproval } = require('../services/approval.service');
 const { handleBase64Field } = require('../services/cloudUploadService');
+const { scheduleOrExecuteTermination, processScheduledTerminations } = require('../services/terminationService');
 
 // ─────────────────────────────────────────
 // JOB POSTS
@@ -893,61 +894,64 @@ const extendEmployeeProbation = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// POST /api/hr/terminate (initiate exit/termination)
+// POST /api/hr/terminate (initiate exit/termination with scheduled date and automated email dispatch)
 const initiateTermination = async (req, res, next) => {
   try {
-    const { employeeId, reason, lastWorkingDay } = req.body;
+    const {
+      employeeId,
+      reason,
+      lastWorkingDay,
+      exitType = 'TERMINATION',
+      sendNoticeEmail = true,
+      notifyManager = true,
+      comments
+    } = req.body;
+
     if (!employeeId || !lastWorkingDay) {
       return res.status(400).json({ success: false, error: { message: 'Employee ID and Last Working Day are required.' } });
     }
 
-    const emp = await prisma.employeeProfile.findUnique({
-      where: { id: employeeId },
-      include: { user: true }
-    });
-    if (!emp) return res.status(404).json({ success: false, error: { message: 'Employee profile not found.' } });
-
-    const existingExit = await prisma.exitLifecycle.findFirst({
-      where: {
-        employeeId,
-        status: { in: ['INITIATED', 'CLEARANCE_IN_PROGRESS'] }
-      }
-    });
-    if (existingExit) return res.status(409).json({ success: false, error: { message: 'Active exit lifecycle already exists for this employee.' } });
-
-    const exit = await prisma.exitLifecycle.create({
-      data: {
-        employeeId,
-        exitType: 'TERMINATION',
-        status: 'INITIATED',
-        lastWorkingDay: new Date(lastWorkingDay),
-        reason
-      }
+    const result = await scheduleOrExecuteTermination({
+      employeeId,
+      lastWorkingDay,
+      reason,
+      exitType,
+      sendNoticeEmail,
+      notifyManager,
+      comments,
+      actorUserId: req.user?.userId || req.user?.id
     });
 
-    await prisma.employeeProfile.update({
-      where: { id: employeeId },
-      data: {
-        lifecycleStatus: 'ON_NOTICE'
-      }
+    return res.status(201).json({
+      success: true,
+      data: result.exit,
+      message: result.message,
+      emailDispatched: result.emailDispatched,
+      isImmediate: result.isImmediate,
+      scheduledDate: result.scheduledDate,
+      formattedLwd: result.formattedLwd
     });
-
-    const { createNotification } = require('../utils/notificationHelper');
-    await createNotification({
-      userId: emp.userId,
-      title: 'Exit Clearance Initiated',
-      message: `An exit clearance process has been initialized for your account. Last working day is set to ${lastWorkingDay}.`,
-      type: 'ALERT',
-      link: '/employee/profile'
-    });
-
-    return res.status(201).json({ success: true, data: exit, message: 'Exit lifecycle initiated successfully.' });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (err.message && (err.message.includes('already in progress') || err.message.includes('exists'))) {
+      return res.status(409).json({ success: false, error: { message: err.message } });
+    }
+    if (err.message && err.message.includes('not found')) {
+      return res.status(404).json({ success: false, error: { message: err.message } });
+    }
+    next(err);
+  }
 };
 
 // GET /api/hr/exits
 const getExitsList = async (req, res, next) => {
   try {
+    // Process any overdue scheduled terminations so statuses are fresh
+    try {
+      await processScheduledTerminations();
+    } catch (sweepErr) {
+      console.warn('[HRController] Scheduled exits sweep warning:', sweepErr.message);
+    }
+
     const orgId = req.user?.organizationId || req.tenant?.id;
     const whereClause = orgId ? { employee: { organizationId: orgId } } : {};
 
@@ -960,14 +964,27 @@ const getExitsList = async (req, res, next) => {
             employeeId: true,
             fullName: true,
             joiningDate: true,
+            lifecycleStatus: true,
             department: { select: { name: true } },
-            user: { select: { email: true } }
+            user: { select: { email: true, isActive: true, status: true } }
           }
         }
       },
       orderBy: { createdAt: 'desc' }
     });
     return res.status(200).json({ success: true, data: exits });
+  } catch (err) { next(err); }
+};
+
+// POST /api/hr/exits/process-scheduled
+const triggerScheduledTerminationsSweep = async (req, res, next) => {
+  try {
+    const result = await processScheduledTerminations();
+    return res.status(200).json({
+      success: true,
+      message: `Scheduled terminations sweep completed. ${result.processedCount || 0} records processed.`,
+      data: result
+    });
   } catch (err) { next(err); }
 };
 
@@ -1581,6 +1598,6 @@ module.exports = {
   remindManager, sendWelcomeEmailAll,
   promoteCandidate,
   confirmEmployeeProbation, extendEmployeeProbation,
-  initiateTermination, getExitsList, updateClearanceStatus, finalizeExit,
+  initiateTermination, getExitsList, updateClearanceStatus, finalizeExit, triggerScheduledTerminationsSweep,
   reviewResignationHr
 };

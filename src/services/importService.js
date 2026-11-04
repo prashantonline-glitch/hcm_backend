@@ -246,11 +246,15 @@ const executeImport = async (validData, entity, context) => {
               let user = existingUser;
               
               if (!user) {
+                const VALID_PRISMA_ROLES = ['SUPERADMIN', 'ADMIN', 'HR', 'MANAGER', 'EMPLOYEE', 'CANDIDATE'];
+                const rawRole = String(row.role || '').trim().toUpperCase();
+                const safeRole = VALID_PRISMA_ROLES.includes(rawRole) ? rawRole : 'EMPLOYEE';
+
                 user = await tx.user.create({
                   data: {
                     email,
                     passwordHash: DEFAULT_HASH,
-                    role: row.role?.toUpperCase() || 'EMPLOYEE',
+                    role: safeRole,
                     status: row.status || 'Active',
                     organizationId: context.organizationId,
                   }
@@ -262,9 +266,28 @@ const executeImport = async (validData, entity, context) => {
               let employee = await tx.employeeProfile.findUnique({ where: { userId: user.id } });
               
               if (!employee) {
+                let resolvedDeptId = null;
+                if (row.department && context.organizationId) {
+                  const dName = String(row.department).trim();
+                  let dept = await tx.department.findFirst({
+                    where: { name: dName, organizationId: context.organizationId }
+                  });
+                  if (!dept) {
+                    dept = await tx.department.create({
+                      data: {
+                        name: dName,
+                        organizationId: context.organizationId,
+                        code: `DEPT-${Math.floor(1000 + Math.random() * 9000)}`
+                      }
+                    }).catch(() => null);
+                  }
+                  if (dept) resolvedDeptId = dept.id;
+                }
+
                 employee = await tx.employeeProfile.create({
                   data: {
                     userId: user.id,
+                    organizationId: context.organizationId,
                     employeeId: empId,
                     fullName: row.fullName || row.firstName || 'Unknown',
                     phone: row.phone ? row.phone.toString().trim() : null,
@@ -272,7 +295,8 @@ const executeImport = async (validData, entity, context) => {
                     joiningDate: row.joiningDate ? parseImportDate(row.joiningDate) : new Date(),
                     address: row.address,
                     bio: row.privateNotes || null,
-                    managerId: managerIdToSet
+                    managerId: managerIdToSet,
+                    departmentId: resolvedDeptId
                   }
                 });
                 console.log(`[IMPORT] Created profile: ${email} → employeeId: "${empId}"`);
@@ -468,6 +492,11 @@ const executeImport = async (validData, entity, context) => {
           }
         }
       } else if (entity === 'departments') {
+        let orgId = context.organizationId;
+        if (!orgId) {
+          const firstOrg = await prisma.organization.findFirst({ select: { id: true } });
+          orgId = firstOrg?.id;
+        }
         const mappedData = chunk.map(row => ({
           name: row.name || 'Unnamed Department',
           code: row.code || `DEPT-${Math.floor(Math.random() * 10000)}`,
@@ -476,7 +505,7 @@ const executeImport = async (validData, entity, context) => {
           description: row.description,
           color: row.color || '#4f46e5',
           status: row.status || 'Active',
-          organizationId: context.organizationId,
+          organizationId: orgId,
         }));
         const res = await prisma.department.createMany({ data: mappedData, skipDuplicates: true });
         totalInserted += res.count;

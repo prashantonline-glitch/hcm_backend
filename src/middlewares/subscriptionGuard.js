@@ -66,6 +66,11 @@ const subscriptionGuard = (requiredFeature) => {
 
       // Feature Entitlement Check
       if (requiredFeature && requiredFeature !== 'ADD_EMPLOYEE') {
+        // Trial tenants get full access to all features including backup & data export
+        if (statusUpper === 'TRIAL') {
+          return next();
+        }
+
         const tenantFeatures = Array.isArray(req.tenant.features) ? req.tenant.features : [];
 
         // Check if the required feature is permitted
@@ -102,3 +107,4 @@ const subscriptionGuard = (requiredFeature) => {
 };
 
 module.exports = subscriptionGuard;
+module.exports.FEATURE_TITLES = FEATURE_TITLES;

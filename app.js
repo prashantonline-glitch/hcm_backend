@@ -123,7 +123,12 @@ app.use('/api/import',      importRoutes);      // Generic Excel Import Engine
 app.use('/api/reimbursements', reimbursementRoutes);
 app.use('/api/admin/calendars', calendarRoutes);
 app.use('/api/admin/backups',   backupRoutes);      // Organization Backup Center & Data Export
-app.use('/api/admin',           backupRoutes);      // Google Drive OAuth endpoints
+// Dedicated Google Drive routes under /api/admin/google-drive to prevent wildcard collision on /api/admin
+const googleDriveRouter = express.Router();
+googleDriveRouter.get('/status', require('./src/controllers/backupController').getGoogleDriveStatus);
+googleDriveRouter.get('/connect', require('./src/controllers/backupController').getGoogleDriveAuthUrl);
+googleDriveRouter.post('/disconnect', require('./src/controllers/backupController').disconnectGoogleDrive);
+app.use('/api/admin/google-drive', protect, tenantGuard, googleDriveRouter);
 app.use('/api', approvalWorkflowRoutes); // Workflow Configuration & Actions
 app.use('/api/copilot', copilotRoutes);
 app.use('/api/ai', copilotRoutes);
@@ -153,6 +158,13 @@ app.use(errorHandler);
 // ---- SERVER START ----
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ HCM Backend Server running on http://0.0.0.0:${PORT}`);
+  // Initialize automated background scheduler for scheduled terminations and exits
+  try {
+    const { initTerminationScheduler } = require('./src/services/terminationService');
+    initTerminationScheduler(30);
+  } catch (schedErr) {
+    console.error('Failed to initialize termination scheduler:', schedErr.message);
+  }
 });
 
 server.on('error', (err) => {

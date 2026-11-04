@@ -514,7 +514,7 @@ exports.getEmployeePayroll = async (req, res) => {
       employeeName: emp.fullName,
       employeeCode: emp.employeeId,
       designation: emp.user?.customRole?.name || emp.department?.name || 'Staff Software Architect',
-      companyName: emp.user?.organization?.name || 'GlobalTech Solutions'
+      companyName: emp.user?.organization?.name || 'Test LLC'
     }));
 
     // Resolve salary structure name
@@ -562,7 +562,12 @@ exports.downloadPayslip = async (req, res) => {
 
     // Get org name for header
     const user = await prisma.user.findUnique({ where: { id: req.user.userId }, include: { organization: { select: { name: true } } } });
-    const orgName = user?.organization?.name || 'GlobalTech Solutions';
+    let orgName = user?.organization?.name;
+    if (!orgName && (user?.organizationId || req.user?.organizationId)) {
+      const org = await prisma.organization.findUnique({ where: { id: user?.organizationId || req.user?.organizationId } });
+      orgName = org?.name;
+    }
+    orgName = orgName || 'Test LLC';
 
     // Generate PDF with pdfkit
     const PDFDocument = require('pdfkit');
