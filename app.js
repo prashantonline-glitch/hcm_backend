@@ -30,6 +30,12 @@ const copilotRoutes = require('./src/routes/copilotRoutes');
 const uploadRoutes = require('./src/routes/uploadRoutes');
 const backupRoutes = require('./src/routes/backupRoutes');
 
+// ── Middlewares (must be declared before use) ──
+const { protect } = require('./src/middlewares/authMiddleware');
+const tenantGuard = require('./src/middlewares/tenantGuard');
+const { checkPermission } = require('./src/middlewares/permissionMiddleware');
+const subscriptionGuard = require('./src/middlewares/subscriptionGuard');
+
 const app = express();
 const PORT = process.env.PORT || 5001;
 
@@ -136,10 +142,6 @@ app.use('/api/upload', uploadRoutes);        // Cloud file uploads (Cloudinary/I
 
 // ── Attendance Quick Endpoints (GET/POST /api/attendance/*) ──
 const { clockIn, clockOut, getCurrentAttendance, getAttendanceHistory } = require('./src/controllers/employeeController');
-const { protect } = require('./src/middlewares/authMiddleware');
-const tenantGuard = require('./src/middlewares/tenantGuard');
-const { checkPermission } = require('./src/middlewares/permissionMiddleware');
-const subscriptionGuard = require('./src/middlewares/subscriptionGuard');
 const attendanceQuickRouter = express.Router();
 attendanceQuickRouter.use(protect);
 attendanceQuickRouter.use(tenantGuard);
