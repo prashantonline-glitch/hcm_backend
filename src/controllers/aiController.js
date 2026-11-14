@@ -2,7 +2,7 @@ const http = require('http');
 const fs = require('fs');
 const prisma = require('../config/prisma');
 const getAiServerUrl = () => {
-  let url = process.env.AI_SERVER_URL || 'https://hcm-ai-server-production.up.railway.app';
+  let url = process.env.AI_SERVER_URL || 'https://hcm-ai-server-backend-production.up.railway.app';
   url = url.trim().replace(/\/+$/, '');
   if (!/^https?:\/\//i.test(url)) {
     url = `https://${url}`;

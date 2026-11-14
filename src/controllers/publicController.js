@@ -219,7 +219,7 @@ const submitCareerApplication = async (req, res, next) => {
     let aiEvaluation = null;
     let calculatedAiScore = null;
     try {
-      let rawAiUrl = process.env.AI_SERVER_URL || 'https://hcm-ai-server-production.up.railway.app';
+      let rawAiUrl = process.env.AI_SERVER_URL || 'https://hcm-ai-server-backend-production.up.railway.app';
       const aiServerUrl = /^https?:\/\//i.test(rawAiUrl.trim()) ? rawAiUrl.trim().replace(/\/+$/, '') : `https://${rawAiUrl.trim().replace(/\/+$/, '')}`;
       const aiRes = await fetch(`${aiServerUrl}/api/mcp/resume/evaluate`, {
         method: 'POST',
