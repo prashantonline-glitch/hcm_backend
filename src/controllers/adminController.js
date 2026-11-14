@@ -8,6 +8,7 @@ const { z } = require('zod');
 const bcrypt = require('bcryptjs');
 const { ensureDefaultRoles } = require('../utils/roleSeeder');
 const { isWorkflowEnabled, processApproval } = require('../services/approval.service');
+const { sendEmail } = require('../utils/emailService');
 const calendarResolver = require('../utils/calendarResolver');
 const { handleBase64Field, isBase64DataUrl, uploadImage } = require('../services/cloudUploadService');
 
@@ -979,6 +980,34 @@ const createUser = async (req, res, next) => {
           },
         },
       },
+    });
+
+    // Automatically dispatch credentials and welcome email to the created employee (non-blocking)
+    const clientBase = process.env.CLIENT_URL ? process.env.CLIENT_URL.split(',')[0].trim() : 'http://localhost:5173';
+    const rawPassword = data.password || 'password123';
+    sendEmail({
+      to: data.email,
+      subject: `Welcome to the Team! Your Account Details for Employee #${data.empId}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;">
+          <h2 style="color: #4f46e5; margin-bottom: 8px;">Welcome aboard, ${data.name}!</h2>
+          <p style="color: #475569; font-size: 15px;">Your employee account has been created on the HCM Portal.</p>
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin: 20px 0;">
+            <p style="margin: 4px 0; color: #334155; font-size: 14px;"><strong>Portal URL:</strong> <a href="${clientBase}/login" style="color: #4f46e5;">${clientBase}/login</a></p>
+            <p style="margin: 4px 0; color: #334155; font-size: 14px;"><strong>Employee ID:</strong> ${data.empId}</p>
+            <p style="margin: 4px 0; color: #334155; font-size: 14px;"><strong>Work Email:</strong> ${data.email}</p>
+            <p style="margin: 4px 0; color: #334155; font-size: 14px;"><strong>Initial Password:</strong> <code style="background-color: #e0e7ff; color: #3730a3; padding: 2px 6px; border-radius: 4px;">${rawPassword}</code></p>
+          </div>
+          <div style="margin: 24px 0;">
+            <a href="${clientBase}/login" style="background-color: #4f46e5; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">
+              Sign In to Your Account
+            </a>
+          </div>
+          <p style="color: #94a3b8; font-size: 12px;">Please make sure to update your password in Profile & Settings after your first login.</p>
+        </div>
+      `
+    }).catch(emailErr => {
+      console.error('[AdminController] New employee credentials email dispatch failed:', emailErr.message);
     });
 
     return res.status(201).json({ success: true, data: user, message: 'User created.' });

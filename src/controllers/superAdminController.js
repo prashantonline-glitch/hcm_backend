@@ -11,6 +11,7 @@ const bcrypt = require('bcryptjs');
 const { z } = require('zod');
 const fs = require('fs/promises');
 const path = require('path');
+const { sendEmail } = require('../utils/emailService');
 const { generatePayrollSnapshot } = require('../services/payrollEngineService');
 
 
@@ -437,6 +438,33 @@ const provisionOrganization = async (req, res, next) => {
         }
       });
     }
+
+    // Automatically send Welcome & Admin Access Credentials email to the provisioned admin
+    const clientBase = process.env.CLIENT_URL ? process.env.CLIENT_URL.split(',')[0].trim() : 'http://localhost:5173';
+    sendEmail({
+      to: admin.email,
+      subject: `Welcome to HCM Cloud! Administrator Account for ${organization.name}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;">
+          <h2 style="color: #4f46e5; margin-bottom: 8px;">Workspace Provisioned Successfully!</h2>
+          <p style="color: #475569; font-size: 15px;">Hello <strong>${admin.fullName}</strong>,</p>
+          <p style="color: #475569; font-size: 15px;">A new workspace for <strong>${organization.name}</strong> has been provisioned on HCM Cloud.</p>
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin: 20px 0;">
+            <p style="margin: 4px 0; color: #334155; font-size: 14px;"><strong>Portal URL:</strong> <a href="${clientBase}/login" style="color: #4f46e5;">${clientBase}/login</a></p>
+            <p style="margin: 4px 0; color: #334155; font-size: 14px;"><strong>Admin Email:</strong> ${admin.email}</p>
+            <p style="margin: 4px 0; color: #334155; font-size: 14px;"><strong>Initial Password:</strong> <code style="background-color: #e0e7ff; color: #3730a3; padding: 2px 6px; border-radius: 4px;">${defaultAdminPassword}</code></p>
+          </div>
+          <div style="margin: 24px 0;">
+            <a href="${clientBase}/login" style="background-color: #4f46e5; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">
+              Sign In to Your Workspace
+            </a>
+          </div>
+          <p style="color: #94a3b8; font-size: 12px;">For your security, we strongly recommend changing your password immediately upon your first sign in.</p>
+        </div>
+      `
+    }).catch(emailErr => {
+      console.error('[SuperAdminController] Provisioning email dispatch failed:', emailErr.message);
+    });
 
     return res.status(201).json({
       success: true,
