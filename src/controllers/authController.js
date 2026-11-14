@@ -5,6 +5,7 @@
 const bcrypt = require('bcryptjs');
 const prisma = require('../config/prisma');
 const { signToken } = require('../utils/jwtHelper');
+const { sendEmail } = require('../utils/emailService');
 const { z } = require('zod');
 const { ensureDefaultRoles, getRoleCustomName, DEFAULT_ROLES } = require('../utils/roleSeeder');
 
@@ -267,6 +268,29 @@ const register = async (req, res, next) => {
         details: `User registered successfully with role: ${role}`,
         ipAddress: req.ip || req.socket.remoteAddress
       }
+    });
+
+    // Send Welcome Email to newly registered user/candidate (non-blocking)
+    sendEmail({
+      to: newUser.email,
+      subject: 'Welcome to HCM Platform! Your Account is Ready',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;">
+          <h2 style="color: #4f46e5; margin-bottom: 8px;">Welcome to HCM Platform!</h2>
+          <p style="color: #475569; font-size: 15px;">Hello,</p>
+          <p style="color: #475569; font-size: 15px;">Your account with email <strong>${newUser.email}</strong> has been successfully registered as a <strong>${role}</strong>.</p>
+          <p style="color: #475569; font-size: 15px;">You can now log in to the portal, explore opportunities, build your AI resume, and track your applications.</p>
+          <div style="margin: 28px 0;">
+            <a href="${process.env.CLIENT_URL ? process.env.CLIENT_URL.split(',')[0].trim() : 'http://localhost:5173'}/login" style="background-color: #4f46e5; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">
+              Sign In to Your Account
+            </a>
+          </div>
+          <p style="color: #94a3b8; font-size: 13px;">If you have any questions, feel free to reply directly to this email.</p>
+          <p style="color: #64748b; font-size: 13px; margin-top: 20px;">Best regards,<br/><strong>HCM Operations Team</strong></p>
+        </div>
+      `
+    }).catch(emailErr => {
+      console.error('[AuthController] Welcome email dispatch failed:', emailErr.message);
     });
 
     return res.status(201).json({
