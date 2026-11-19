@@ -822,7 +822,7 @@ const createUser = async (req, res, next) => {
       joinDate: z.string().trim().min(1, 'Joining date is required.'),
       empType: z.string().trim().min(1, 'Employment type is required.'),
       status: z.enum(['Active', 'Inactive', 'Pending']),
-      address: z.string().trim().min(1, 'Residential address is required.'),
+      address: z.string().trim().optional().transform(val => val || 'Not specified'),
       img: z.string().optional(),
       monthlyCTC: z.union([z.number(), z.string()]).optional().nullable(),
       baseSalary: z.union([z.number(), z.string()]).optional().nullable(),
