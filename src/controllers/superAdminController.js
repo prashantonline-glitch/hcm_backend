@@ -11,7 +11,7 @@ const bcrypt = require('bcryptjs');
 const { z } = require('zod');
 const fs = require('fs/promises');
 const path = require('path');
-const { sendEmail } = require('../utils/emailService');
+const { sendEmail, getEmailClientUrl } = require('../utils/emailService');
 const { generatePayrollSnapshot } = require('../services/payrollEngineService');
 
 
@@ -440,7 +440,7 @@ const provisionOrganization = async (req, res, next) => {
     }
 
     // Automatically send Welcome & Admin Access Credentials email to the provisioned admin
-    const clientBase = process.env.CLIENT_URL ? process.env.CLIENT_URL.split(',')[0].trim() : 'http://localhost:5173';
+    const clientBase = getEmailClientUrl();
     try {
       const emailRes = await sendEmail({
         to: admin.email,

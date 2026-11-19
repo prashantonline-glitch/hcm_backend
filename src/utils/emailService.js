@@ -1,6 +1,13 @@
 const nodemailer = require('nodemailer');
 
 const cleanString = (val) => (val || '').replace(/^["']|["']$/g, '').trim();
+const DEFAULT_FROM = '"HCM Cloud" <operations@evgahcm.com>';
+const DEFAULT_CLIENT_URL = 'https://evgahcm.com';
+
+const getEmailClientUrl = () => {
+  const configuredUrl = cleanString(process.env.EMAIL_CLIENT_URL);
+  return (configuredUrl || DEFAULT_CLIENT_URL).replace(/\/+$/, '');
+};
 
 /**
  * Direct HTTPS dispatch via Resend REST API (Port 443).
@@ -9,7 +16,9 @@ const cleanString = (val) => (val || '').replace(/^["']|["']$/g, '').trim();
  */
 const sendViaResendHttp = async ({ apiKey, from, to, subject, html, text }) => {
   const recipients = Array.isArray(to) ? to : [to];
-  const cleanFrom = from || '"HCM Cloud" <operations@evgahcm.com>';
+  const cleanFrom = from || DEFAULT_FROM;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
   
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
@@ -23,14 +32,16 @@ const sendViaResendHttp = async ({ apiKey, from, to, subject, html, text }) => {
       subject,
       html: html || (text ? `<p>${text.replace(/\n/g, '<br/>')}</p>` : ''),
       text: text || '',
-    })
+    }),
+    signal: controller.signal
   });
 
-  const data = await res.json();
+  clearTimeout(timeout);
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(data?.message || data?.error?.message || `Resend API Error (HTTP ${res.status})`);
   }
-  return { messageId: data.id };
+  return { messageId: data.id, provider: 'resend' };
 };
 
 const createTransporter = async () => {
@@ -59,6 +70,11 @@ const createTransporter = async () => {
     });
   }
 
+  // A mock transport is useful locally, but must never report a fake delivery in production.
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('Email provider is not configured. Set RESEND_API_KEY or valid SMTP credentials.');
+  }
+
   // Fallback for development / unconfigured credentials
   console.log('⚠️ Real SMTP credentials not configured or using placeholders. Using mock email service.');
   return {
@@ -69,21 +85,27 @@ const createTransporter = async () => {
       console.log('Subject:', mailOptions.subject);
       console.log('Content Preview:', (mailOptions.text || mailOptions.html || '').slice(0, 150));
       console.log('---------------------------\n');
-      return { messageId: `mock-${Date.now()}` };
+      return { messageId: `mock-${Date.now()}`, mock: true };
     }
   };
 };
 
 const sendEmail = async (options) => {
   try {
-    const rawPass = cleanString(process.env.SMTP_PASS) || cleanString(process.env.RESEND_API_KEY);
-    const rawHost = cleanString(process.env.SMTP_HOST);
-    const fromAddress = cleanString(process.env.EMAIL_FROM) || '"HCM Cloud" <operations@evgahcm.com>';
+    if (!options?.to || !options?.subject || (!options?.html && !options?.text)) {
+      throw new Error('Email requires recipient, subject, and content.');
+    }
+
+    // Prefer the dedicated variable. SMTP_PASS remains supported for existing deployments.
+    const smtpPass = cleanString(process.env.SMTP_PASS);
+    const resendApiKey = cleanString(process.env.RESEND_API_KEY)
+      || (smtpPass.startsWith('re_') ? smtpPass : '');
+    const fromAddress = cleanString(process.env.EMAIL_FROM) || DEFAULT_FROM;
 
     // Priority 1: If using Resend (key starts with 're_' or host is resend), use direct HTTPS API
-    if (rawPass && rawPass.startsWith('re_')) {
+    if (resendApiKey) {
       const info = await sendViaResendHttp({
-        apiKey: rawPass,
+        apiKey: resendApiKey,
         from: fromAddress,
         to: options.to,
         subject: options.subject,
@@ -106,6 +128,9 @@ const sendEmail = async (options) => {
     };
 
     const info = await transporter.sendMail(mailOptions);
+    if (info.mock) {
+      return { success: false, mock: true, info, error: 'Email was captured by the development mock and was not delivered.' };
+    }
     console.log(`[EmailService/SMTP] Email sent successfully to "${options.to}" (MessageID: ${info.messageId})`);
     return { success: true, info };
   } catch (error) {
@@ -114,4 +139,4 @@ const sendEmail = async (options) => {
   }
 };
 
-module.exports = { sendEmail };
+module.exports = { sendEmail, getEmailClientUrl };

@@ -8,7 +8,7 @@ const { z } = require('zod');
 const bcrypt = require('bcryptjs');
 const { ensureDefaultRoles } = require('../utils/roleSeeder');
 const { isWorkflowEnabled, processApproval } = require('../services/approval.service');
-const { sendEmail } = require('../utils/emailService');
+const { sendEmail, getEmailClientUrl } = require('../utils/emailService');
 const calendarResolver = require('../utils/calendarResolver');
 const { handleBase64Field, isBase64DataUrl, uploadImage } = require('../services/cloudUploadService');
 
@@ -983,7 +983,7 @@ const createUser = async (req, res, next) => {
     });
 
     // Automatically dispatch credentials and welcome email to the created employee (non-blocking)
-    const clientBase = process.env.CLIENT_URL ? process.env.CLIENT_URL.split(',')[0].trim() : 'http://localhost:5173';
+    const clientBase = getEmailClientUrl();
     const rawPassword = data.password || 'password123';
     try {
       const emailRes = await sendEmail({

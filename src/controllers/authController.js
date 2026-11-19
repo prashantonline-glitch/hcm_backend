@@ -5,7 +5,7 @@
 const bcrypt = require('bcryptjs');
 const prisma = require('../config/prisma');
 const { signToken } = require('../utils/jwtHelper');
-const { sendEmail } = require('../utils/emailService');
+const { sendEmail, getEmailClientUrl } = require('../utils/emailService');
 const { z } = require('zod');
 const { ensureDefaultRoles, getRoleCustomName, DEFAULT_ROLES } = require('../utils/roleSeeder');
 
@@ -270,8 +270,8 @@ const register = async (req, res, next) => {
       }
     });
 
-    // Send Welcome Email to newly registered user/candidate (non-blocking)
-    sendEmail({
+    // Await Resend so the response accurately reports whether the provider accepted the email.
+    const welcomeEmailResult = await sendEmail({
       to: newUser.email,
       subject: 'Welcome to HCM Platform! Your Account is Ready',
       html: `
@@ -281,7 +281,7 @@ const register = async (req, res, next) => {
           <p style="color: #475569; font-size: 15px;">Your account with email <strong>${newUser.email}</strong> has been successfully registered as a <strong>${role}</strong>.</p>
           <p style="color: #475569; font-size: 15px;">You can now log in to the portal, explore opportunities, build your AI resume, and track your applications.</p>
           <div style="margin: 28px 0;">
-            <a href="${process.env.CLIENT_URL ? process.env.CLIENT_URL.split(',')[0].trim() : 'http://localhost:5173'}/login" style="background-color: #4f46e5; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">
+            <a href="${getEmailClientUrl()}/login" style="background-color: #4f46e5; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">
               Sign In to Your Account
             </a>
           </div>
@@ -289,14 +289,16 @@ const register = async (req, res, next) => {
           <p style="color: #64748b; font-size: 13px; margin-top: 20px;">Best regards,<br/><strong>HCM Operations Team</strong></p>
         </div>
       `
-    }).catch(emailErr => {
-      console.error('[AuthController] Welcome email dispatch failed:', emailErr.message);
     });
+    if (!welcomeEmailResult.success) {
+      console.error('[AuthController] Welcome email dispatch failed:', welcomeEmailResult.error);
+    }
 
     return res.status(201).json({
       success: true,
       data: {
         token,
+        emailSent: welcomeEmailResult.success,
         user: {
           id: newUser.id,
           email: newUser.email,

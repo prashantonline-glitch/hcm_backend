@@ -1545,17 +1545,27 @@ const sendWelcomeEmailAll = async (req, res, next) => {
     
     const tasks = await prisma.onboarding.findMany({ where: { id: { in: ids } } });
     
+    let sent = 0;
+    const failed = [];
     for (const task of tasks) {
       if (task.email) {
-        await sendEmail({
+        const result = await sendEmail({
           to: task.email,
           subject: `Welcome to the team, ${task.name}!`,
           text: `Hi ${task.name},\n\nWe are excited to welcome you to the team as our new ${task.role}. Your onboarding process has started.\n\nBest,\nHR Team`
         });
+        if (result.success) sent += 1;
+        else failed.push({ id: task.id, email: task.email, error: result.error });
+      } else {
+        failed.push({ id: task.id, email: null, error: 'Candidate email is missing.' });
       }
     }
     
-    return res.status(200).json({ success: true, message: 'Welcome emails sent' });
+    return res.status(failed.length ? 207 : 200).json({
+      success: failed.length === 0,
+      data: { requested: ids.length, found: tasks.length, sent, failed },
+      message: failed.length ? `${sent} welcome email(s) sent; ${failed.length} failed.` : `${sent} welcome email(s) sent.`
+    });
   } catch (err) { next(err); }
 };
 

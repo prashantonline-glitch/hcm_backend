@@ -364,12 +364,15 @@ const scheduleOrExecuteTermination = async ({
         reason
       });
 
-      await sendEmail({
+      const managerEmailResult = await sendEmail({
         to: emp.manager.user.email,
         subject: `HR Advisory: Scheduled Offboarding for ${employeeDisplayName}`,
         html: managerEmailHtml,
         text: `Hello,\n\nPlease be advised that offboarding has been scheduled for ${employeeDisplayName} (${emp.employeeId || 'No ID'}) with last working day ${formattedLwd}.\n\nPlease coordinate knowledge transfer and handover formalities.`
       });
+      if (!managerEmailResult.success) {
+        console.error('[TerminationService] Manager advisory email rejected:', managerEmailResult.error);
+      }
 
       // Manager in-app notification
       await createNotification({

@@ -390,11 +390,14 @@ const handleTransition = async (event, data, tx = prisma) => {
       await logAudit(candidateUser.id, 'EMPLOYEE_PROMOTED', `Candidate successfully promoted. Employee ID: ${employeeId}`);
 
       try {
-        await sendEmail({
+        const welcomeEmailResult = await sendEmail({
           to: onboarding.email,
           subject: `Welcome to the team, ${onboarding.name}!`,
           text: `Hi ${onboarding.name},\n\nWe are absolutely excited to welcome you to our team! Your account profile has been activated with Employee ID: ${employeeId}.\n\nBest regards,\nHR Team`
         });
+        if (!welcomeEmailResult.success) {
+          console.error('Welcome email was rejected by the provider:', welcomeEmailResult.error);
+        }
       } catch (emailErr) {
         console.error('Welcome email dispatch failed:', emailErr);
       }

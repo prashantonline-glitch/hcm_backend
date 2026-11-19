@@ -547,12 +547,13 @@ const registerOrganization = async (req, res, next) => {
     });
 
     // Automatically dispatch welcome & password activation email to the newly registered customer
+    let activationEmailSent = false;
     try {
-      const { sendEmail } = require('../utils/emailService');
-      const clientBase = process.env.CLIENT_URL ? process.env.CLIENT_URL.split(',')[0].trim() : 'http://localhost:5173';
+      const { sendEmail, getEmailClientUrl } = require('../utils/emailService');
+      const clientBase = getEmailClientUrl();
       const setupUrl = `${clientBase}/setup-password?token=${encodeURIComponent(token)}`;
 
-      await sendEmail({
+      const emailResult = await sendEmail({
         to: result.user.email,
         subject: `Welcome to HCM - Setup Your Administrator Account for ${result.org.name}`,
         html: `
@@ -571,6 +572,10 @@ const registerOrganization = async (req, res, next) => {
           </div>
         `
       });
+      activationEmailSent = emailResult.success;
+      if (!emailResult.success) {
+        console.error('[PublicController] Customer activation email rejected:', emailResult.error);
+      }
     } catch (emailErr) {
       console.error('[PublicController] Automated customer registration email dispatch failed:', emailErr.message);
     }
@@ -579,6 +584,7 @@ const registerOrganization = async (req, res, next) => {
       success: true,
       data: {
         token,
+        emailSent: activationEmailSent,
         organizationName: result.org.name,
         adminEmail: result.user.email
       },

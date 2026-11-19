@@ -43,6 +43,8 @@ const PORT = process.env.PORT || 5001;
 
 // CORS: Frontend (localhost:5173, 5174, 5175, Netlify) ko backend se baat karne do
 const allowedOrigins = [
+  'https://evgahcm.com',
+  'https://www.evgahcm.com',
   'https://hcm-kiaan.netlify.app',
   'https://human-hcm.netlify.app',
   'http://localhost:5173',
